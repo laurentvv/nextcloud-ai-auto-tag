@@ -12,8 +12,9 @@ users = ["alice", "bob"]
 concurrency = 4
 # Plafond de résultats de SEARCH (au-delà : repli sur PROPFIND récursif).
 search_limit = 200000
-# Aucune écriture dans ces fenêtres (sauvegarde Nextcloud à 04:00) ; reprise ensuite.
-blackout = ["03:00-05:30"]
+# Fenêtres sans écriture (facultatif). Inutile en général : un 503 (Nextcloud en maintenance,
+# par exemple pendant une sauvegarde) met l'écriture en pause jusqu'à la fin, sans limite de tentatives.
+blackout = []
 
 [ssh]
 host = "192.168.1.10"
@@ -28,8 +29,8 @@ max_image_mb = 100
 
 [llama]
 server_exe = 'C:\llama.cpp\llama-server.exe'
-model = 'D:\models\d1-Omni-2B-Q8_0.gguf'
-mmproj = 'D:\models\mmproj-d1-Omni-2B-Q8_0.gguf'
+model = 'D:\Modeles_LLM\d1-Omni-2B-Q8_0.gguf'
+mmproj = 'D:\Modeles_LLM\mmproj-d1-Omni-2B-Q8_0.gguf'
 port = 8080
 ub = 8192
 image_max_side = 768

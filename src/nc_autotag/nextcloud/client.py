@@ -14,6 +14,8 @@ OC = "{http://owncloud.org/ns}"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PROPFIND", "SEARCH", "REPORT"})
 RETRY_STATUS = frozenset({429, 502, 503, 504})
 MAX_BACKOFF = 300.0
+MAINTENANCE_POLL = 60.0
+MAINTENANCE_MAX_WAIT = 6 * 3600.0
 
 
 class NextcloudError(Exception):
@@ -72,6 +74,7 @@ class NcClient:
         concurrency: int = 4,
         retries: int = 8,
         backoff: float = 5.0,
+        maintenance_max_wait: float = MAINTENANCE_MAX_WAIT,
         read_only: bool = False,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         now: Callable[[], datetime] = datetime.now,
@@ -82,6 +85,7 @@ class NcClient:
         self.windows = parse_windows(blackout or [])
         self.retries = retries
         self.backoff = backoff
+        self.maintenance_max_wait = maintenance_max_wait
         self.read_only = read_only
         self.sleep = sleep
         self.now = now
@@ -112,9 +116,12 @@ class NcClient:
         if not safe and self.read_only:
             raise ReadOnlyViolation(f"{method} interdit en lecture seule")
         attempt = 0
+        maint_attempt = 0
+        waited = 0.0
         while True:
             if not safe:
                 await self.wait_blackout()
+            maint = False
             try:
                 async with self.sem:
                     resp = await self.http.request(method, url, **kw)
@@ -124,12 +131,26 @@ class NcClient:
                 if resp.status_code not in RETRY_STATUS:
                     return resp
                 reason, retry_after = f"HTTP {resp.status_code}", resp.headers.get("Retry-After")
-            attempt += 1
-            if attempt > self.retries:
-                raise NcUnavailable(f"{method} {url} : {reason} après {self.retries} reprises")
-            delay = min(self.backoff * 2 ** (attempt - 1), MAX_BACKOFF)
-            if retry_after and retry_after.isdigit():
-                delay = min(max(delay, float(retry_after)), MAX_BACKOFF)
+                maint = resp.status_code == 503
+            if maint:
+                # 503 = Nextcloud en maintenance (sauvegarde...) : on patiente jusqu'à la fin.
+                maint_attempt += 1
+                delay = min(self.backoff * 2 ** (maint_attempt - 1), MAINTENANCE_POLL)
+                if retry_after and retry_after.isdigit():
+                    delay = min(max(delay, float(retry_after)), MAINTENANCE_POLL)
+                waited += delay
+                if waited > self.maintenance_max_wait:
+                    hours = self.maintenance_max_wait / 3600
+                    raise NcUnavailable(
+                        f"{method} {url} : maintenance prolongée (plus de {hours:.0f} h)"
+                    )
+            else:
+                attempt += 1
+                if attempt > self.retries:
+                    raise NcUnavailable(f"{method} {url} : {reason} après {self.retries} reprises")
+                delay = min(self.backoff * 2 ** (attempt - 1), MAX_BACKOFF)
+                if retry_after and retry_after.isdigit():
+                    delay = min(max(delay, float(retry_after)), MAX_BACKOFF)
             if self.on_wait:
-                self.on_wait(reason, delay)
+                self.on_wait("maintenance" if maint else reason, delay)
             await self.sleep(delay)

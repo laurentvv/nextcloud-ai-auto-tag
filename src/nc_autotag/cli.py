@@ -347,7 +347,12 @@ def _credentials(users: list[str]) -> dict:
 
 
 def _waiting(reason: str, delay: float) -> None:
-    why = "fenêtre sans écriture" if reason == "blackout" else f"serveur indisponible ({reason})"
+    if reason == "blackout":
+        why = "fenêtre sans écriture"
+    elif reason == "maintenance":
+        why = "Nextcloud en maintenance (sauvegarde ?), reprise automatique"
+    else:
+        why = f"serveur indisponible ({reason})"
     console.print(f"[yellow]Pause de {delay:.0f} s : {why}[/yellow]", highlight=False)
 
 

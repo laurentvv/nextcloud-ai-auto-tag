@@ -1,59 +1,43 @@
-# Séances de nuit
+# Séance de traitement
 
-Objectif : analyser les ~37 200 fichiers de `/Local` (stockage externe, `/Local/alice` 8 282 + `/Local/bob` 28 927) sur plusieurs nuits, et traiter chaque jour les nouveaux fichiers du reste du Nextcloud. Une tâche planifiée Windows lance `scripts/nuit.ps1` chaque soir.
+Un seul script : `scripts/nuit.ps1`. Tu le lances quand tu veux, il traite **uniquement les fichiers pas encore traités** (nouveaux, modifiés, ou restants d'une séance précédente), pour tous les dossiers, `/Local` compris, et tu le coupes avec `Ctrl+C` quand tu veux.
 
-## Principe
-- **/Local : analyse avec écriture des tags.** Chaque tour de 400 fichiers est analysé puis ses tags sont posés dans Nextcloud (`--apply --no-delete-tag`). Le tag « à supprimer » n'est **pas** posé : les propositions (avec raisons) restent dans `state.db`. Tu les relis dans `report --delete-candidates`, puis un `run --apply` simple ajoute « à supprimer » après ta validation (rapide, ~4 fichiers/s).
-- **Hors /Local : passe incrémentale quotidienne.** `inventory` puis `run --apply --no-delete-tag --exclude-path /Local` : les nouveaux fichiers ou fichiers modifiés reçoivent leurs tags, mais **pas** « à supprimer » : ces propositions restent dans l'état et dans `report --delete-candidates`.
-- **Reprise automatique.** Chaque `run` s'arrête proprement à l'heure limite (`--until`) : le fichier en cours est fini, le run est clos, les fichiers non pris restent `pending` et sont repris la nuit suivante.
-- **Coupure du serveur** : 03:00-05:30 (sauvegarde 04:00 en mode maintenance, tâche Google Drive du dimanche 03:00). L'analyse de `/Local` ne fait que lire en SFTP ; les écritures dans Nextcloud (passe incrémentale) attendent la fin de la fenêtre. Sans `-Until`, la séance tourne jusqu'à la fin du travail ou jusqu'à `Ctrl+C`.
-- Si llama-server n'est pas déjà prêt, la séance le démarre (masqué, `-b`/`-ub` 8192, `-ngl 99`, 127.0.0.1, réglages lus dans `config/settings.toml`) et l'arrête à la fin ; un serveur déjà lancé n'est jamais arrêté.
-
-## Déroulé d'une nuit
-| Heure | Étape |
-|---|---|
-| 22:30 | Démarrage de la tâche : verrou `logs/nuit.lock`, llama-server prêt (démarré au besoin, attente max 3 min) |
-| 22:30+ | `inventory` (alice, bob) |
-| ensuite | Passe incrémentale : pour chaque compte, `run --user U --exclude-path /Local --apply --no-delete-tag` |
-| ensuite | Analyse de `/Local` en dry-run, par tours de 400 fichiers en alternant alice et bob, jusqu'à l'heure limite |
-| fin | Arrêt propre (ou `Ctrl+C`), arrêt de llama-server (si démarré par la séance), ligne de résumé dans `logs/nuit-AAAAMMJJ.log` |
-| 03:00-05:30 | Coupure serveur : aucune activité du projet |
-
-Journal : `logs/nuit-AAAAMMJJ.log` (horodaté, sortie complète de chaque commande). Codes de sortie : 0 ok, 1 erreur, 2 séance déjà en cours.
-
-## Combien de nuits
-À 0,56 photo/s : (8 282 + 28 927) / 0,56 ≈ 66 400 s ≈ **18,5 h de GPU**.
-- Fenêtre réelle 22:30 → 02:30 = 4 h (moins la passe incrémentale, en général courte) ≈ 8 000 fichiers/nuit : **5 nuits**.
-- Si la séance démarre plus tôt (≈ 5 h utiles/nuit, ~10 000 fichiers) : **4 nuits**.
-Comme les deux comptes alternent, alice (≈ 8 h de GPU au rythme partagé) est fini après ~2 nuits, puis bob avance seule. Les vidéos sont plus lentes que les photos : prévoir une nuit de marge. Le fichier d'état n'est jamais perdu : on peut interrompre et reprendre à tout moment.
-
-## Routine du matin
 ```powershell
-uv run nc-autotag status                                   # avancement par compte et statut
-uv run nc-autotag report --delete-candidates --csv reports\a-supprimer.csv   # propositions « à supprimer » à relire
+cd D:\GIT\nextcloud-ai-auto-tag
+pwsh -NoProfile -File .\scripts\nuit.ps1
 ```
-Après relecture (ajuster les seuils dans `config/tags.yaml` et relancer `--reprocess` si besoin), appliquer un compte :
-```powershell
-uv run nc-autotag run --user alice --path /Local/alice --apply
-uv run nc-autotag run --user bob --path /Local/bob --apply
-```
-`--apply` pose tous les tags, « à supprimer » compris (l'outil ne supprime jamais de fichier). Retour arrière : `uv run nc-autotag rollback` (n'ôte que les tags journalisés par l'outil).
 
-## Installer, suspendre, supprimer
-```powershell
-pwsh -NoProfile -File scripts\install-taches.ps1 -Install     # tâche « nc-autotag-nuit » : tous les jours à 22:30
-pwsh -NoProfile -File scripts\install-taches.ps1 -Status      # état, prochain et dernier lancement
-pwsh -NoProfile -File scripts\install-taches.ps1 -Uninstall
-```
-La tâche ne tourne que session ouverte, réveille le PC (`WakeToRun`), démarre même sur batterie, durée max 6 h, rattrape un lancement manqué (`StartWhenAvailable`) et ignore un second lancement simultané.
+## Ce qu'il fait
+1. Verrou `logs/nuit.lock` (une seule séance à la fois).
+2. Démarre llama-server (d1-Omni) s'il n'est pas déjà prêt ; ne l'arrête à la fin que s'il l'a lancé lui-même.
+3. `inventory` : découvre les nouveaux fichiers et ceux qui ont changé.
+4. Boucle : par tours de 400 fichiers, en alternant les comptes, `run --apply --no-delete-tag` : analyse par d1 puis pose des tags dans Nextcloud. S'arrête quand plus rien n'est en attente.
+5. Empêche la veille Windows pendant la séance, écrit un journal `logs/nuit-AAAAMMJJ.log` et une ligne « Résumé : » par compte.
 
-- **Pause temporaire** : `Disable-ScheduledTask -TaskName nc-autotag-nuit` ; reprise : `Enable-ScheduledTask -TaskName nc-autotag-nuit`.
-- **Arrêter la séance en cours** : `Stop-ScheduledTask -TaskName nc-autotag-nuit` (les fichiers non traités restent `pending`) ; supprimer `logs\nuit.lock` seulement si le processus n'existe plus (un verrou périmé est de toute façon détecté).
-- **Lancement manuel** : `pwsh -NoProfile -File scripts
-uit.ps1` (sans heure limite) ou `... -Until 02:30` pour borner la séance ; `-Mode local|incremental|both`. `Ctrl+C` coupe à tout moment, la reprise est automatique.
+Chaque tag posé est journalisé : `rollback --yes` retire exactement ce que l'outil a ajouté, sans toucher à tes tags manuels.
+
+## Sauvegarde et maintenance de Nextcloud
+Pas d'horaire à surveiller : si Nextcloud passe en **mode maintenance** (par exemple pendant la sauvegarde de 04:00), il répond 503. L'outil se met alors **en pause** et vérifie toutes les minutes ; il reprend tout seul quand Nextcloud revient (jusqu'à 6 h d'attente). La lecture des photos par SFTP n'est pas concernée. Un réglage facultatif `blackout` existe encore dans `config/settings.toml` (liste vide par défaut).
+
+## Le tag « à supprimer »
+La séance **ne pose jamais** « à supprimer » (`--no-delete-tag`) : les propositions et leurs raisons restent dans `state.db`. Quand tu veux les traiter :
+
+```powershell
+uv run nc-autotag report --delete-candidates --csv reports\a_supprimer.csv   # relire
+uv run nc-autotag run --user alice --apply                                 # ajoute « à supprimer » (rapide, ~4 fichiers/s)
+```
+
+## Options
+```powershell
+pwsh -NoProfile -File .\scripts\nuit.ps1 -Until 02:30   # facultatif : s'arrêter à une heure donnée
+pwsh -NoProfile -File .\scripts\nuit.ps1 -Chunk 200      # taille d'un tour (400 par défaut)
+```
+Codes de sortie : 0 ok, 1 erreur, 2 séance déjà en cours.
+
+## Durée
+À environ 0,4 à 0,56 fichier par seconde (limité par le GPU), les ~37 000 fichiers de `/Local` représentent 18 à 24 h de GPU. La reprise est automatique : relance simplement le script.
+Les vidéos sont plus lentes (6 images analysées par vidéo).
 
 ## Précautions
-- **Le PC doit être allumé ou en veille** (réveil par la tâche) et **la session Windows ouverte** (verrouillée, c'est bon ; déconnectée, non). Pas d'hibernation ni d'arrêt : vérifier dans Paramètres > Système > Alimentation que la mise en veille n'est pas remplacée par l'hibernation, et que « autoriser les minuteurs de réveil » est activé (Options d'alimentation avancées > Veille). Le script empêche la veille pendant la séance.
-- Branche le PC sur secteur (le GPU tourne ~4 h) ; la tâche démarre aussi sur batterie.
-- Si le PC était éteint à 22:30, la tâche part au rattrapage et la séance reprend là où elle s'était arrêtée.
-- Les mots de passe d'application restent dans le gestionnaire d'identifiants Windows ; la tâche s'exécute sous ton compte pour y avoir accès.
+PC allumé et branché (le script empêche la veille). Un second lancement en même temps est refusé.
+Pour une exécution automatique chaque soir, `scripts/install-taches.ps1` (`-Install` / `-Uninstall` / `-Status`) enregistre une tâche planifiée Windows ; elle est facultative et n'est pas installée par défaut.

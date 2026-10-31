@@ -147,8 +147,28 @@ async def test_retry_on_503_then_success():
     assert slept == [30.0, 30.0]
 
 
-async def test_maintenance_gives_up_after_retries():
-    client = nc_client(lambda r: httpx.Response(503), retries=2)
+async def test_maintenance_waits_beyond_retries_then_resumes():
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(503) if len(attempts) <= 12 else httpx.Response(207, text=SEARCH_XML)
+
+    client = nc_client(handler, retries=2)
+    resp = await client.request("PROPFIND", "/x")
+    await client.aclose()
+    assert resp.status_code == 207 and len(attempts) == 13  # bien plus que retries
+
+
+async def test_maintenance_gives_up_after_max_wait():
+    client = nc_client(lambda r: httpx.Response(503), maintenance_max_wait=200.0)
+    with pytest.raises(NcUnavailable):
+        await client.request("PROPFIND", "/x")
+    await client.aclose()
+
+
+async def test_other_errors_still_limited_by_retries():
+    client = nc_client(lambda r: httpx.Response(502), retries=2)
     with pytest.raises(NcUnavailable):
         await client.request("PROPFIND", "/x")
     await client.aclose()

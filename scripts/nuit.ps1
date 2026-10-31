@@ -1,19 +1,16 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-  Séance de nuit nc-autotag : passe incrémentale (hors /Local, avec écriture) puis analyse de /Local avec écriture des tags (sans « à supprimer »).
+  Séance nc-autotag : inventaire, puis analyse et pose des tags des fichiers pas encore traités (tous dossiers, /Local compris), sans le tag « à supprimer ».
 .PARAMETER Until
   Heure d'arrêt HH:MM, facultative. Sans elle la séance tourne jusqu'à la fin du travail ou jusqu'à Ctrl+C.
-.PARAMETER Mode
-  incremental | local | both (défaut).
 .PARAMETER Chunk
-  Fichiers analysés par tour et par compte pour /Local (les comptes alternent).
+  Fichiers traités par tour et par compte (les comptes alternent).
 .NOTES
   Codes de sortie : 0 ok, 1 erreur, 2 séance déjà en cours.
 #>
 param(
     [string]$Until = '',
-    [ValidateSet('incremental', 'local', 'both')][string]$Mode = 'both',
     [int]$Chunk = 400
 )
 
@@ -93,7 +90,7 @@ function Invoke-Session {
     $code = 0
 
     $stop = if ($Until) { $deadline.ToString('dd/MM HH:mm') } else { 'sans heure limite (Ctrl+C pour couper)' }
-    Log "Séance : mode $Mode, arrêt $stop, comptes $($users -join ', ')."
+    Log "Séance : arrêt $stop, comptes $($users -join ', ')."
 
     $llama = $null
     if (Test-Llama $port) {
@@ -125,49 +122,34 @@ function Invoke-Session {
 
     try {
         $inv = Invoke-Nc @('inventory')
-        $inventoryOk = $inv.Code -eq 0
-        if (-not $inventoryOk) {
-            Log 'Inventaire en échec : passe incrémentale ignorée.'
+        if ($inv.Code -ne 0) {
+            Log 'Inventaire en échec : on continue avec les fichiers déjà connus.'
             $code = 1
         }
 
-        if (($Mode -in 'incremental', 'both') -and $inventoryOk) {
-            foreach ($u in $users) {
+        $active = [System.Collections.Generic.List[string]]::new()
+        foreach ($u in $users) { $active.Add([string]$u) }
+        $failed = $false
+        while ($active.Count -gt 0 -and -not $failed -and (Get-Date) -lt $deadline) {
+            foreach ($u in @($active)) {
                 if ((Get-Date) -ge $deadline) { break }
-                $r = Invoke-Nc (@('run', '--user', $u, '--exclude-path', '/Local', '--apply',
+                $r = Invoke-Nc (@('run', '--user', $u, '--limit', "$Chunk", '--apply',
                     '--no-delete-tag') + $untilArgs)
-                if ($null -eq (Get-Remaining $r)) {
-                    Log "Passe incrémentale en échec pour $u."
+                $left = Get-Remaining $r
+                if ($null -eq $left) {
+                    Log "Traitement de $u en échec : séance interrompue."
                     $code = 1
+                    $failed = $true
+                    break
                 }
-            }
-        }
-
-        if ($Mode -in 'local', 'both') {
-            $active = [System.Collections.Generic.List[string]]::new()
-            foreach ($u in $users) { $active.Add([string]$u) }
-            $failed = $false
-            while ($active.Count -gt 0 -and -not $failed -and (Get-Date) -lt $deadline) {
-                foreach ($u in @($active)) {
-                    if ((Get-Date) -ge $deadline) { break }
-                    $r = Invoke-Nc (@('run', '--user', $u, '--path', "/Local/$u",
-                        '--limit', "$Chunk", '--apply', '--no-delete-tag') + $untilArgs)
-                    $left = Get-Remaining $r
-                    if ($null -eq $left) {
-                        Log "Analyse de /Local/$u en échec : séance interrompue."
-                        $code = 1
-                        $failed = $true
-                        break
-                    }
-                    if ($left -eq 0) {
-                        Log "/Local/$u : terminé."
-                        [void]$active.Remove($u)
-                    } elseif ((Get-Processed $r) -eq 0) {
-                        Log "/Local/$u : aucun fichier traité, séance interrompue."
-                        $code = 1
-                        $failed = $true
-                        break
-                    }
+                if ($left -eq 0) {
+                    Log "${u} : tout est traité."
+                    [void]$active.Remove($u)
+                } elseif ((Get-Processed $r) -eq 0) {
+                    Log "${u} : aucun fichier traité alors qu'il en reste, séance interrompue."
+                    $code = 1
+                    $failed = $true
+                    break
                 }
             }
         }
