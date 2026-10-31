@@ -1,0 +1,8 @@
+.venv
+__pycache__/
+logs/
+*.db
+config/settings.toml
+.pytest_cache/
+.ruff_cache/
+reports/

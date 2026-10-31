@@ -1,0 +1,121 @@
+# Taxonomie française. d1 ré-encode l'image à chaque question : on privilégie peu de questions.
+# kind: choice -> une question par catégorie (mono-étiquette, option « aucun » ajoutée d'office)
+# kind: noul   -> une question oui/non par tag (tags indépendants)
+# gate: true -> catégorie interrogée seule en premier ; si l'option gagnante est dans exclusive
+#   (et >= son seuil), les autres questions sont sautées et seul ce tag est retenu.
+# threshold : seuil par catégorie, surchargeable par tag (défaut global : default_threshold).
+default_threshold: 0.5
+
+categories:
+  - id: contenu
+    kind: choice
+    instructions: What kind of image is this?
+    threshold: 0.6
+    gate: true
+    exclusive: ["capture d'écran", document, carte]
+    tags:
+      - {name: "capture d'écran", description: "a screenshot of a phone, computer or app", also: ["à supprimer"]}
+      - {name: "document", description: "a photo of a paper document, a letter, a receipt or a form"}
+      - {name: "selfie", description: "a selfie taken at arm's length with the front camera"}
+      - {name: "affiche", description: "a poster, a sign, a flyer or written text"}
+      - {name: "carte", description: "a map or a diagram"}
+      - {name: "mème", description: "a meme, an illustration or a drawing"}
+
+  # Candidats à la suppression : l'outil ne supprime jamais, il pose seulement « à supprimer ».
+  # emit : tag Nextcloud réellement posé (défaut : name) ; also : tags posés en plus.
+  - id: qualite
+    kind: choice
+    instructions: Is this photo usable, or is it a failed or accidental shot?
+    threshold: 0.8
+    tags:
+      - {name: "floue", description: "very blurry, out of focus or motion blur, with no usable subject", emit: "à supprimer"}
+      - {name: "accidentelle", description: "a black or almost black frame, a finger over the lens, or a shot of a pocket, the floor or the ceiling with no subject", emit: "à supprimer"}
+
+  - id: lieu
+    kind: choice
+    instructions: Where was this photo taken? Pick the type of place or scene.
+    threshold: 0.5
+    tags:
+      - {name: "plage", description: "a beach or seashore with sand and sea"}
+      - {name: "montagne", description: "mountains, alpine landscape or ski slopes"}
+      - {name: "forêt", description: "a forest or woodland with many trees"}
+      - {name: "campagne", description: "countryside, fields, farmland or a village in the country"}
+      - {name: "ville", description: "a city street, urban buildings or town centre"}
+      - {name: "monument", description: "a famous monument, church, castle or historic building"}
+      - {name: "intérieur", description: "clearly indoors, inside a room or building with walls and ceiling", threshold: 0.5}
+      - {name: "restaurant", description: "inside a restaurant, cafe or bar"}
+      - {name: "jardin", description: "a garden, park or lawn"}
+      - {name: "piscine", description: "a swimming pool"}
+      - {name: "route", description: "a road, car journey, motorway or view from a vehicle"}
+      - {name: "lac", description: "a lake, river or pond"}
+
+  - id: moment
+    kind: choice
+    instructions: At what time of day was this picture taken?
+    threshold: 0.6
+    tags:
+      - {name: "jour", description: "bright daylight"}
+      - {name: "coucher de soleil", description: "sunset or sunrise with orange sky"}
+      - {name: "nuit", description: "outdoors at night, with a black sky or street lights in the dark", threshold: 0.75}
+
+  - id: sujet
+    kind: choice
+    instructions: What is the main subject of this picture?
+    threshold: 0.5
+    tags:
+      - {name: "paysage", description: "a wide landscape view with no clear main person"}
+      - {name: "nourriture", description: "food, a dish, a meal or drinks"}
+      - {name: "fleurs", description: "flowers or plants in close-up"}
+      - {name: "voiture", description: "a car or other vehicle as the main subject"}
+      - {name: "bâtiment", description: "architecture, the facade of a building"}
+      - {name: "objet", description: "a single everyday object photographed close-up"}
+      - {name: "art", description: "a painting, sculpture, museum piece or artwork"}
+      - {name: "informatique", description: "computer equipment, a server rack, network cabling, patch panels, a screen or electronics", threshold: 0.4}
+      - {name: "travaux", description: "DIY, tools, construction work, renovation or a workshop", threshold: 0.4}
+
+  - id: nature
+    kind: choice
+    instructions: What nature or weather element is the most visible in this picture?
+    threshold: 0.6
+    tags:
+      - {name: "mer", description: "the open sea or ocean with waves"}
+      - {name: "neige", description: "snow covering the ground or the scenery"}
+      - {name: "ciel", description: "a sky with clouds as the dominant element"}
+      - {name: "orage", description: "a storm, rain or lightning"}
+      - {name: "brouillard", description: "fog or mist"}
+      - {name: "arc-en-ciel", description: "a rainbow"}
+      - {name: "feuilles d'automne", description: "autumn colours and fallen leaves"}
+
+  - id: événement
+    kind: choice
+    instructions: Does this picture show a particular event or celebration?
+    threshold: 0.6
+    tags:
+      - {name: "anniversaire", description: "a birthday party with cake and candles"}
+      - {name: "mariage", description: "a wedding with a bride, groom or ceremony"}
+      - {name: "noël", description: "Christmas with a tree, decorations or gifts"}
+      - {name: "concert", description: "a concert, a show or a crowd at a performance"}
+      - {name: "sport", description: "a sport activity or a sports event"}
+      - {name: "fête", description: "a party, a festive gathering or fireworks"}
+      - {name: "vacances", description: "a holiday trip, tourism or sightseeing"}
+
+  - id: animal
+    kind: choice
+    instructions: Which animal is the main animal visible in this picture?
+    threshold: 0.5
+    tags:
+      - {name: "chien", description: "a dog"}
+      - {name: "chat", description: "a cat"}
+      - {name: "oiseau", description: "a bird"}
+      - {name: "cheval", description: "a horse or pony clearly visible", threshold: 0.7}
+      - {name: "animal sauvage", description: "a wild animal, an insect, a fish or a reptile"}
+      - {name: "animal de ferme", description: "a farm animal such as a cow, a sheep, a pig or a hen"}
+
+  - id: personnes
+    kind: noul
+    threshold: 0.5
+    tags:
+      - {name: "personne", description: "at least one person is clearly visible in the picture"}
+      - {name: "groupe", description: "three or more people are visible together"}
+      - {name: "enfant", description: "a child is visible", threshold: 0.6}
+      - {name: "bébé", description: "a newborn or infant under 2 years old, not an older child", threshold: 0.9}

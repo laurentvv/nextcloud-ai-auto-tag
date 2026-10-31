@@ -1,0 +1,42 @@
+# Copier vers config/settings.toml et adapter.
+state_db = "state.db"
+# Tag posé sur les candidats à la suppression (l'outil ne supprime jamais rien).
+delete_tag_name = "à supprimer"
+# Nombre max de tags posés par fichier (« à supprimer » compte, il passe en premier).
+max_tags_per_file = 8
+
+[nextcloud]
+base_url = "https://cloud.example.com"
+users = ["alice", "bob"]
+# Requêtes WebDAV simultanées.
+concurrency = 4
+# Plafond de résultats de SEARCH (au-delà : repli sur PROPFIND récursif).
+search_limit = 200000
+# Aucune écriture dans ces fenêtres (sauvegarde Nextcloud à 04:00) ; reprise ensuite.
+blackout = ["03:00-05:30"]
+
+[ssh]
+host = "192.168.1.10"
+user = "root"
+key_file = "~/.ssh/nc_autotag_ed25519"
+data_dir = "/var/www/html/nextcloud/data"
+# Au-delà de ces tailles, le fichier est ignoré (statut skipped).
+max_video_mb = 300
+max_image_mb = 100
+# Stockages externes lisibles par SFTP (point de montage Nextcloud -> dossier serveur).
+# mounts = { "/Local" = "/mnt/backup/Google_Photos" }
+
+[llama]
+server_exe = 'C:\llama.cpp\llama-server.exe'
+model = 'D:\models\d1-Omni-2B-Q8_0.gguf'
+mmproj = 'D:\models\mmproj-d1-Omni-2B-Q8_0.gguf'
+port = 8080
+ub = 8192
+image_max_side = 768
+
+[quality]
+# Flou : « floue » par d1 ET variance du Laplacien (image réduite à 512 px) sous ce seuil.
+blur_var_threshold = 30.0
+# Doublons : distance de Hamming max entre dHash 64 bits, et fenêtre de temps entre prises.
+dup_max_hamming = 4
+dup_window_minutes = 30
