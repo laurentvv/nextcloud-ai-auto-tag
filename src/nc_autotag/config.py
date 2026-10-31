@@ -38,8 +38,8 @@ class SshConfig(BaseModel):
 
 class LlamaConfig(BaseModel):
     server_exe: Path = Path(r"C:\llama.cpp\llama-server.exe")
-    model: Path = Path(r"D:\Modeles_LLM\d1-Omni-2B-Q8_0.gguf")
-    mmproj: Path = Path(r"D:\Modeles_LLM\mmproj-d1-Omni-2B-Q8_0.gguf")
+    model: Path = Path(r"D:\models\d1-Omni-2B-Q8_0.gguf")
+    mmproj: Path = Path(r"D:\models\mmproj-d1-Omni-2B-Q8_0.gguf")
     port: int = 8080
     ub: int = 8192
     image_max_side: int = 768

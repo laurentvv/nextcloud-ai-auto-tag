@@ -29,8 +29,8 @@ max_image_mb = 100
 
 [llama]
 server_exe = 'C:\llama.cpp\llama-server.exe'
-model = 'D:\Modeles_LLM\d1-Omni-2B-Q8_0.gguf'
-mmproj = 'D:\Modeles_LLM\mmproj-d1-Omni-2B-Q8_0.gguf'
+model = 'D:\models\d1-Omni-2B-Q8_0.gguf'
+mmproj = 'D:\models\mmproj-d1-Omni-2B-Q8_0.gguf'
 port = 8080
 ub = 8192
 image_max_side = 768
