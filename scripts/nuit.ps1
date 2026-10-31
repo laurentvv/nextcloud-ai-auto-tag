@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-  Séance de nuit nc-autotag : passe incrémentale (hors /Local, avec écriture) puis analyse de /Local (dry-run).
+  Séance de nuit nc-autotag : passe incrémentale (hors /Local, avec écriture) puis analyse de /Local avec écriture des tags (sans « à supprimer »).
 .PARAMETER Until
   Heure d'arrêt HH:MM, facultative. Sans elle la séance tourne jusqu'à la fin du travail ou jusqu'à Ctrl+C.
 .PARAMETER Mode
@@ -151,7 +151,7 @@ function Invoke-Session {
                 foreach ($u in @($active)) {
                     if ((Get-Date) -ge $deadline) { break }
                     $r = Invoke-Nc (@('run', '--user', $u, '--path', "/Local/$u",
-                        '--limit', "$Chunk") + $untilArgs)
+                        '--limit', "$Chunk", '--apply', '--no-delete-tag') + $untilArgs)
                     $left = Get-Remaining $r
                     if ($null -eq $left) {
                         Log "Analyse de /Local/$u en échec : séance interrompue."
