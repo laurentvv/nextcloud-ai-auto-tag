@@ -144,7 +144,8 @@ function Invoke-Session {
         }
 
         if ($Mode -in 'local', 'both') {
-            $active = [System.Collections.Generic.List[string]]::new($users)
+            $active = [System.Collections.Generic.List[string]]::new()
+            foreach ($u in $users) { $active.Add([string]$u) }
             $failed = $false
             while ($active.Count -gt 0 -and -not $failed -and (Get-Date) -lt $deadline) {
                 foreach ($u in @($active)) {
