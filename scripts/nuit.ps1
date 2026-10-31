@@ -3,21 +3,18 @@
 .SYNOPSIS
   Séance de nuit nc-autotag : passe incrémentale (hors /Local, avec écriture) puis analyse de /Local (dry-run).
 .PARAMETER Until
-  Heure d'arrêt HH:MM (défaut 02:30) ; la fenêtre sans écriture du serveur commence à 03:00.
+  Heure d'arrêt HH:MM, facultative. Sans elle la séance tourne jusqu'à la fin du travail ou jusqu'à Ctrl+C.
 .PARAMETER Mode
   incremental | local | both (défaut).
 .PARAMETER Chunk
   Fichiers analysés par tour et par compte pour /Local (les comptes alternent).
-.PARAMETER Force
-  Autorise un lancement dont l'heure d'arrêt est à plus de 8 h (lancement manuel en journée).
 .NOTES
   Codes de sortie : 0 ok, 1 erreur, 2 séance déjà en cours.
 #>
 param(
-    [string]$Until = '02:30',
+    [string]$Until = '',
     [ValidateSet('incremental', 'local', 'both')][string]$Mode = 'both',
-    [int]$Chunk = 400,
-    [switch]$Force
+    [int]$Chunk = 400
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,17 +67,19 @@ function Test-Llama([int]$Port) {
 }
 
 function Invoke-Session {
-    if ($Until -notmatch '^([01]\d|2[0-3]):[0-5]\d$') {
-        Log "Heure d'arrêt invalide : $Until (attendu HH:MM)"
-        return 1
-    }
-    $now = Get-Date
-    $hour, $minute = $Until.Split(':') | ForEach-Object { [int]$_ }
-    $deadline = $now.Date.AddHours($hour).AddMinutes($minute)
-    if ($deadline -le $now) { $deadline = $deadline.AddDays(1) }
-    if (-not $Force -and ($deadline - $now).TotalHours -gt 8) {
-        Log "Heure d'arrêt $Until dans plus de 8 h : séance ignorée (utiliser -Force pour un lancement manuel)."
-        return 0
+    $untilArgs = @()
+    if ($Until) {
+        if ($Until -notmatch '^([01]\d|2[0-3]):[0-5]\d$') {
+            Log "Heure d'arrêt invalide : $Until (attendu HH:MM)"
+            return 1
+        }
+        $now = Get-Date
+        $hour, $minute = $Until.Split(':') | ForEach-Object { [int]$_ }
+        $deadline = $now.Date.AddHours($hour).AddMinutes($minute)
+        if ($deadline -le $now) { $deadline = $deadline.AddDays(1) }
+        $untilArgs = @('--until', $Until)
+    } else {
+        $deadline = [datetime]::MaxValue
     }
 
     $cfgResult = & uv run nc-autotag config-show --json
@@ -93,7 +92,8 @@ function Invoke-Session {
     $port = [int]$cfg.llama.port
     $code = 0
 
-    Log "Séance de nuit : mode $Mode, arrêt à $($deadline.ToString('dd/MM HH:mm')), comptes $($users -join ', ')."
+    $stop = if ($Until) { $deadline.ToString('dd/MM HH:mm') } else { 'sans heure limite (Ctrl+C pour couper)' }
+    Log "Séance : mode $Mode, arrêt $stop, comptes $($users -join ', ')."
 
     $llama = $null
     if (Test-Llama $port) {
@@ -134,8 +134,8 @@ function Invoke-Session {
         if (($Mode -in 'incremental', 'both') -and $inventoryOk) {
             foreach ($u in $users) {
                 if ((Get-Date) -ge $deadline) { break }
-                $r = Invoke-Nc @('run', '--user', $u, '--exclude-path', '/Local', '--apply',
-                    '--no-delete-tag', '--until', $Until)
+                $r = Invoke-Nc (@('run', '--user', $u, '--exclude-path', '/Local', '--apply',
+                    '--no-delete-tag') + $untilArgs)
                 if ($null -eq (Get-Remaining $r)) {
                     Log "Passe incrémentale en échec pour $u."
                     $code = 1
@@ -150,8 +150,8 @@ function Invoke-Session {
             while ($active.Count -gt 0 -and -not $failed -and (Get-Date) -lt $deadline) {
                 foreach ($u in @($active)) {
                     if ((Get-Date) -ge $deadline) { break }
-                    $r = Invoke-Nc @('run', '--user', $u, '--path', "/Local/$u",
-                        '--limit', "$Chunk", '--until', $Until)
+                    $r = Invoke-Nc (@('run', '--user', $u, '--path', "/Local/$u",
+                        '--limit', "$Chunk") + $untilArgs)
                     $left = Get-Remaining $r
                     if ($null -eq $left) {
                         Log "Analyse de /Local/$u en échec : séance interrompue."

@@ -6,7 +6,7 @@ Objectif : analyser les ~37 200 fichiers de `/Local` (stockage externe, `/Local/
 - **/Local : analyse en dry-run.** Les résultats (scores, propositions, « à supprimer » et raisons) sont stockés dans `state.db` ; rien n'est écrit dans Nextcloud. Tu relis le rapport « à supprimer » avant d'appliquer (l'application est rapide, ~4 fichiers/s).
 - **Hors /Local : passe incrémentale quotidienne.** `inventory` puis `run --apply --no-delete-tag --exclude-path /Local` : les nouveaux fichiers ou fichiers modifiés reçoivent leurs tags, mais **pas** « à supprimer » : ces propositions restent dans l'état et dans `report --delete-candidates`.
 - **Reprise automatique.** Chaque `run` s'arrête proprement à l'heure limite (`--until`) : le fichier en cours est fini, le run est clos, les fichiers non pris restent `pending` et sont repris la nuit suivante.
-- **Jamais pendant la coupure du serveur** : 03:00-05:30 (sauvegarde 04:00 en mode maintenance, tâche Google Drive du dimanche 03:00). La séance s'arrête avant, par défaut à 02:30 (jamais après 02:45).
+- **Coupure du serveur** : 03:00-05:30 (sauvegarde 04:00 en mode maintenance, tâche Google Drive du dimanche 03:00). L'analyse de `/Local` ne fait que lire en SFTP ; les écritures dans Nextcloud (passe incrémentale) attendent la fin de la fenêtre. Sans `-Until`, la séance tourne jusqu'à la fin du travail ou jusqu'à `Ctrl+C`.
 - Si llama-server n'est pas déjà prêt, la séance le démarre (masqué, `-b`/`-ub` 8192, `-ngl 99`, 127.0.0.1, réglages lus dans `config/settings.toml`) et l'arrête à la fin ; un serveur déjà lancé n'est jamais arrêté.
 
 ## Déroulé d'une nuit
@@ -16,7 +16,7 @@ Objectif : analyser les ~37 200 fichiers de `/Local` (stockage externe, `/Local/
 | 22:30+ | `inventory` (alice, bob) |
 | ensuite | Passe incrémentale : pour chaque compte, `run --user U --exclude-path /Local --apply --no-delete-tag` |
 | ensuite | Analyse de `/Local` en dry-run, par tours de 400 fichiers en alternant alice et bob, jusqu'à l'heure limite |
-| 02:30 | Arrêt propre, arrêt de llama-server (si démarré par la séance), ligne de résumé dans `logs/nuit-AAAAMMJJ.log` |
+| fin | Arrêt propre (ou `Ctrl+C`), arrêt de llama-server (si démarré par la séance), ligne de résumé dans `logs/nuit-AAAAMMJJ.log` |
 | 03:00-05:30 | Coupure serveur : aucune activité du projet |
 
 Journal : `logs/nuit-AAAAMMJJ.log` (horodaté, sortie complète de chaque commande). Codes de sortie : 0 ok, 1 erreur, 2 séance déjà en cours.
@@ -49,10 +49,11 @@ La tâche ne tourne que session ouverte, réveille le PC (`WakeToRun`), démarre
 
 - **Pause temporaire** : `Disable-ScheduledTask -TaskName nc-autotag-nuit` ; reprise : `Enable-ScheduledTask -TaskName nc-autotag-nuit`.
 - **Arrêter la séance en cours** : `Stop-ScheduledTask -TaskName nc-autotag-nuit` (les fichiers non traités restent `pending`) ; supprimer `logs\nuit.lock` seulement si le processus n'existe plus (un verrou périmé est de toute façon détecté).
-- **Lancement manuel** : `pwsh -NoProfile -File scripts\nuit.ps1 -Until 02:30 -Mode local`. Une heure limite à plus de 8 h est refusée (évite de traverser la coupure) sauf `-Force`.
+- **Lancement manuel** : `pwsh -NoProfile -File scripts
+uit.ps1` (sans heure limite) ou `... -Until 02:30` pour borner la séance ; `-Mode local|incremental|both`. `Ctrl+C` coupe à tout moment, la reprise est automatique.
 
 ## Précautions
 - **Le PC doit être allumé ou en veille** (réveil par la tâche) et **la session Windows ouverte** (verrouillée, c'est bon ; déconnectée, non). Pas d'hibernation ni d'arrêt : vérifier dans Paramètres > Système > Alimentation que la mise en veille n'est pas remplacée par l'hibernation, et que « autoriser les minuteurs de réveil » est activé (Options d'alimentation avancées > Veille). Le script empêche la veille pendant la séance.
 - Branche le PC sur secteur (le GPU tourne ~4 h) ; la tâche démarre aussi sur batterie.
-- Si le PC était éteint à 22:30, la tâche part au rattrapage mais la séance est ignorée si l'heure limite est à plus de 8 h : elle reprend simplement le soir suivant.
+- Si le PC était éteint à 22:30, la tâche part au rattrapage et la séance reprend là où elle s'était arrêtée.
 - Les mots de passe d'application restent dans le gestionnaire d'identifiants Windows ; la tâche s'exécute sous ton compte pour y avoir accès.
